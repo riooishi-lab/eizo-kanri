@@ -1,18 +1,18 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import type { Project, ProjectPriority } from '@/types/project'
 import { PROJECT_STATUSES } from '@/types/project'
 import { StatusBadge, PriorityBadge } from './StatusBadge'
+import { ColumnFilter } from '@/components/ui/ColumnFilter'
 import Link from 'next/link'
-import { ChevronRight, ChevronDown, Filter } from 'lucide-react'
+import { ChevronRight, Filter } from 'lucide-react'
 
 interface ProjectListViewProps {
   projects: Project[]
 }
 
 type ColumnKey = 'status' | 'priority' | 'company_name' | 'production_staff'
-
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'
@@ -34,62 +34,17 @@ const PRIORITY_LABELS: Record<ProjectPriority, string> = {
   want: 'WANT',
 }
 
-function FilterDropdown({
-  options,
-  selected,
-  onChange,
-  onClose,
-}: {
-  options: string[]
-  selected: Set<string>
-  onChange: (val: string) => void
-  onClose: () => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose()
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [onClose])
-
-  return (
-    <div
-      ref={ref}
-      className="absolute top-full left-0 mt-1 z-50 bg-white border border-slate-200 rounded-lg shadow-lg min-w-[160px] py-1"
-    >
-      {options.map(opt => (
-        <label
-          key={opt}
-          className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer text-sm text-slate-700"
-        >
-          <input
-            type="checkbox"
-            checked={selected.has(opt)}
-            onChange={() => onChange(opt)}
-            className="accent-indigo-600 w-3.5 h-3.5"
-          />
-          {opt}
-        </label>
-      ))}
-    </div>
-  )
+const EMPTY_FILTERS: Record<ColumnKey, Set<string>> = {
+  status: new Set(),
+  priority: new Set(),
+  company_name: new Set(),
+  production_staff: new Set(),
 }
 
 export default function ProjectListView({ projects }: ProjectListViewProps) {
-  const [filters, setFilters] = useState<Record<ColumnKey, Set<string>>>({
-    status: new Set(),
-    priority: new Set(),
-    company_name: new Set(),
-    production_staff: new Set(),
-  })
+  const [filters, setFilters] = useState<Record<ColumnKey, Set<string>>>(EMPTY_FILTERS)
   const [openColumn, setOpenColumn] = useState<ColumnKey | null>(null)
 
-  // 各列のユニーク値を取得
   const columnOptions = useMemo(() => ({
     status: [...PROJECT_STATUSES] as string[],
     priority: ['MUST', 'SHOULD', 'WANT'] as string[],
@@ -124,42 +79,18 @@ export default function ProjectListView({ projects }: ProjectListViewProps) {
 
   const isFiltered = Object.values(filters).some(s => s.size > 0)
 
-  function FilterHeader({
-    col,
-    label,
-  }: {
-    col: ColumnKey
-    label: string
-  }) {
-    const active = filters[col].size > 0
+  function FilterTh({ col, label }: { col: ColumnKey; label: string }) {
     return (
       <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">
-        <div className="relative inline-flex items-center gap-1">
-          <button
-            onClick={() => toggleColumn(col)}
-            className={`flex items-center gap-1 rounded px-1 -mx-1 hover:bg-slate-200 transition-colors ${active ? 'text-indigo-600' : ''}`}
-          >
-            {active ? (
-              <Filter className="w-3 h-3 fill-indigo-600" />
-            ) : (
-              <ChevronDown className="w-3 h-3 opacity-40" />
-            )}
-            {label}
-            {active && (
-              <span className="ml-0.5 text-[10px] bg-indigo-100 text-indigo-700 rounded-full px-1 font-semibold">
-                {filters[col].size}
-              </span>
-            )}
-          </button>
-          {openColumn === col && (
-            <FilterDropdown
-              options={columnOptions[col]}
-              selected={filters[col]}
-              onChange={val => toggleFilter(col, val)}
-              onClose={() => setOpenColumn(null)}
-            />
-          )}
-        </div>
+        <ColumnFilter
+          label={label}
+          options={columnOptions[col]}
+          selected={filters[col]}
+          isOpen={openColumn === col}
+          onToggle={() => toggleColumn(col)}
+          onChange={val => toggleFilter(col, val)}
+          onClose={() => setOpenColumn(null)}
+        />
       </th>
     )
   }
@@ -193,10 +124,10 @@ export default function ProjectListView({ projects }: ProjectListViewProps) {
             <tr className="bg-slate-50 border-b border-slate-200" style={{ position: 'sticky', top: 0, zIndex: 10 }}>
               <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">案件No</th>
               <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">案件名</th>
-              <FilterHeader col="company_name" label="会社名" />
-              <FilterHeader col="status" label="ステータス" />
-              <FilterHeader col="priority" label="優先度" />
-              <FilterHeader col="production_staff" label="制作担当" />
+              <FilterTh col="company_name" label="会社名" />
+              <FilterTh col="status" label="ステータス" />
+              <FilterTh col="priority" label="優先度" />
+              <FilterTh col="production_staff" label="制作担当" />
               <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">撮影日</th>
               <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">予算</th>
               <th className="px-4 py-3 bg-slate-50"></th>
@@ -211,21 +142,14 @@ export default function ProjectListView({ projects }: ProjectListViewProps) {
               </tr>
             ) : (
               filteredProjects.map((project) => (
-                <tr
-                  key={project.id}
-                  className="hover:bg-slate-50 transition-colors"
-                >
+                <tr key={project.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs text-slate-400">{project.project_no}</td>
                   <td className="px-4 py-3">
                     <span className="font-medium text-slate-900">{project.project_name}</span>
                   </td>
                   <td className="px-4 py-3 text-slate-600">{project.company_name}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={project.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <PriorityBadge priority={project.priority} />
-                  </td>
+                  <td className="px-4 py-3"><StatusBadge status={project.status} /></td>
+                  <td className="px-4 py-3"><PriorityBadge priority={project.priority} /></td>
                   <td className="px-4 py-3 text-slate-600">{project.production_staff || '—'}</td>
                   <td className="px-4 py-3 text-slate-600">{formatDate(project.shooting_date)}</td>
                   <td className="px-4 py-3 text-slate-600">{formatCurrency(project.budget)}</td>

@@ -2,13 +2,14 @@
 
 import React, { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Project } from '@/types/project'
-import { PROJECT_STATUS_COLORS } from '@/types/project'
+import type { Project, ProjectPriority } from '@/types/project'
+import { PROJECT_STATUS_COLORS, PROJECT_STATUSES } from '@/types/project'
 import KanbanBoard from '@/components/projects/KanbanBoard'
 import ProjectListView from '@/components/projects/ProjectListView'
+import { ColumnFilter } from '@/components/ui/ColumnFilter'
 import {
   LayoutGrid, List, Plus, Search,
-  TrendingUp, TrendingDown, AlertTriangle, CalendarX, X,
+  TrendingUp, TrendingDown, AlertTriangle, CalendarX, X, Filter,
 } from 'lucide-react'
 import Link from 'next/link'
 import {
@@ -17,8 +18,17 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell,
 } from 'recharts'
 
-type ViewMode  = 'kanban' | 'list'
-type GanttSort = 'created' | 'final' | 'first_draft' | 'days_left'
+type ViewMode      = 'kanban' | 'list'
+type GanttSort     = 'created' | 'final' | 'first_draft' | 'days_left'
+type GanttFilterKey = 'status' | 'priority' | 'company_name' | 'production_staff'
+
+const PRIORITY_LABELS: Record<ProjectPriority, string> = {
+  must: 'MUST', should: 'SHOULD', want: 'WANT',
+}
+
+const EMPTY_GANTT_FILTERS: Record<GanttFilterKey, Set<string>> = {
+  status: new Set(), priority: new Set(), company_name: new Set(), production_staff: new Set(),
+}
 
 // ── 作業種別カラー ─────────────────────────────────────────────────────────
 const WORK_TYPE_COLORS: Record<string, string> = {
@@ -130,7 +140,9 @@ export default function HomePage() {
   const [loading, setLoading]         = useState(true)
   const [viewMode, setViewMode]       = useState<ViewMode>('kanban')
   const [searchQuery, setSearchQuery] = useState('')
-  const [ganttSort, setGanttSort]     = useState<GanttSort>('created')
+  const [ganttSort, setGanttSort]         = useState<GanttSort>('created')
+  const [ganttFilters, setGanttFilters]   = useState<Record<GanttFilterKey, Set<string>>>(EMPTY_GANTT_FILTERS)
+  const [ganttFilterOpen, setGanttFilterOpen] = useState<GanttFilterKey | null>(null)
 
   const [workLogs, setWorkLogs]                   = useState<WorkLog[]>([])
   const [sixMonthLogs, setSixMonthLogs]           = useState<MonthlyLog[]>([])
@@ -198,8 +210,34 @@ export default function HomePage() {
   const todayLineX = todayIdx * DAY_W + DAY_W / 2
 
   // ── ガント：ソート + フィルター ────────────────────────────────────────────
+  const ganttFilterOptions = useMemo(() => ({
+    status: [...PROJECT_STATUSES] as string[],
+    priority: ['MUST', 'SHOULD', 'WANT'] as string[],
+    company_name: [...new Set(projects.map(p => p.company_name).filter(Boolean))].sort(),
+    production_staff: [...new Set(projects.map(p => p.production_staff ?? '（未設定）'))].sort(),
+  }), [projects])
+
+  function toggleGanttFilter(col: GanttFilterKey, val: string) {
+    setGanttFilters(prev => {
+      const next = new Set(prev[col])
+      next.has(val) ? next.delete(val) : next.add(val)
+      return { ...prev, [col]: next }
+    })
+  }
+
   const ganttProjects = useMemo(() => {
-    const arr = [...projects].filter(p => SEGMENTS.some(ms => p[ms.key] != null))
+    const arr = [...projects]
+      .filter(p => SEGMENTS.some(ms => p[ms.key] != null))
+      .filter(p => {
+        if (ganttFilters.status.size > 0 && !ganttFilters.status.has(p.status)) return false
+        if (ganttFilters.priority.size > 0 && !ganttFilters.priority.has(PRIORITY_LABELS[p.priority])) return false
+        if (ganttFilters.company_name.size > 0 && !ganttFilters.company_name.has(p.company_name)) return false
+        if (ganttFilters.production_staff.size > 0) {
+          const staff = p.production_staff ?? '（未設定）'
+          if (!ganttFilters.production_staff.has(staff)) return false
+        }
+        return true
+      })
     switch (ganttSort) {
       case 'final':
         return arr.sort((a, b) => (!a.final_date ? 1 : !b.final_date ? -1 : a.final_date.localeCompare(b.final_date)))
@@ -213,7 +251,7 @@ export default function HomePage() {
         })
       default: return arr
     }
-  }, [projects, ganttSort, todayStr])
+  }, [projects, ganttSort, ganttFilters, todayStr])
 
   // ── 締切アラート ──────────────────────────────────────────────────────────
   type DeadlineAlert = { id: string; level: 'red' | 'orange' | 'yellow'; message: string; href: string }
@@ -394,25 +432,59 @@ export default function HomePage() {
           <div className="h-px flex-1 bg-slate-200" />
         </div>
 
-        {/* ソートボタン */}
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="text-xs text-slate-500">ソート：</span>
-          {([
-            ['created',    '登録順'],
-            ['final',      '納期順'],
-            ['first_draft','初稿順'],
-            ['days_left',  '残り日数順'],
-          ] as [GanttSort, string][]).map(([val, label]) => (
-            <button key={val} onClick={() => setGanttSort(val)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
-                ganttSort === val
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        {/* ソート＆フィルターバー */}
+        <div className="flex flex-wrap items-center gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">ソート：</span>
+            {([
+              ['created',    '登録順'],
+              ['final',      '納期順'],
+              ['first_draft','初稿順'],
+              ['days_left',  '残り日数順'],
+            ] as [GanttSort, string][]).map(([val, label]) => (
+              <button key={val} onClick={() => setGanttSort(val)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                  ganttSort === val
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="w-px h-4 bg-slate-200" />
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">フィルター：</span>
+            {([
+              ['status',           'ステータス'],
+              ['priority',         '優先度'],
+              ['company_name',     '会社名'],
+              ['production_staff', '制作担当'],
+            ] as [GanttFilterKey, string][]).map(([col, label]) => (
+              <ColumnFilter
+                key={col}
+                label={label}
+                options={ganttFilterOptions[col]}
+                selected={ganttFilters[col]}
+                isOpen={ganttFilterOpen === col}
+                onToggle={() => setGanttFilterOpen(prev => prev === col ? null : col)}
+                onChange={val => toggleGanttFilter(col, val)}
+                onClose={() => setGanttFilterOpen(null)}
+              />
+            ))}
+            {Object.values(ganttFilters).some(s => s.size > 0) && (
+              <button
+                onClick={() => setGanttFilters(EMPTY_GANTT_FILTERS)}
+                className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700"
+              >
+                <Filter className="w-3 h-3" />
+                クリア
+              </button>
+            )}
+          </div>
         </div>
 
         {/* 凡例 */}
