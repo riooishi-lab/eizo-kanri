@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Film, CheckCircle, AlertCircle } from 'lucide-react'
 
-export default function SetPasswordPage() {
+function SetPasswordForm() {
+  const searchParams = useSearchParams()
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -15,31 +17,39 @@ export default function SetPasswordPage() {
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    const supabase = createClient()
+    const tokenHash = searchParams.get('token_hash')
+    const type = searchParams.get('type')
 
-    // Supabase が URL の #access_token を自動処理して SIGNED_IN イベントを発火する
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if ((event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') && session) {
-        // 招待リンクの場合、user_metadata から名前を取得
-        const metaName = session.user.user_metadata?.name
-        if (metaName) setName(metaName)
-        setSessionReady(true)
+    async function verifyInvite() {
+      const supabase = createClient()
+
+      // PKCE フロー: token_hash + type=invite でセッションを確立
+      if (tokenHash && type === 'invite') {
+        const { data, error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: 'invite',
+        })
+        if (!error && data.user) {
+          const metaName = data.user.user_metadata?.name
+          if (metaName) setName(metaName)
+          setSessionReady(true)
+        }
         setChecking(false)
+        return
       }
-    })
 
-    // すでにセッションがある場合
-    supabase.auth.getSession().then(({ data: { session } }) => {
+      // すでにセッションがある場合（リロード時など）
+      const { data: { session } } = await supabase.auth.getSession()
       if (session) {
         const metaName = session.user.user_metadata?.name
         if (metaName) setName(metaName)
         setSessionReady(true)
       }
       setChecking(false)
-    })
+    }
 
-    return () => subscription.unsubscribe()
-  }, [])
+    verifyInvite()
+  }, [searchParams])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -56,8 +66,6 @@ export default function SetPasswordPage() {
     setError(null)
 
     const supabase = createClient()
-
-    // 名前とパスワードを同時に更新
     const { error } = await supabase.auth.updateUser({
       password,
       data: { name: name.trim() || undefined },
@@ -197,5 +205,17 @@ export default function SetPasswordPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function SetPasswordPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-slate-400 text-sm">読み込み中...</div>
+      </div>
+    }>
+      <SetPasswordForm />
+    </Suspense>
   )
 }
