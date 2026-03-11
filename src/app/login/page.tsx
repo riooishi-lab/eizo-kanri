@@ -9,35 +9,21 @@ import { Film } from 'lucide-react'
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true)
-    setMessage(null)
+    setError(null)
 
-    // クライアントはアクション実行時に初期化（ビルド時のSSRを回避）
     const supabase = createClient()
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
 
-    if (mode === 'login') {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        setMessage({ type: 'error', text: 'メールアドレスまたはパスワードが正しくありません。' })
-      } else {
-        window.location.href = '/projects'
-      }
+    if (error) {
+      setError('メールアドレスまたはパスワードが正しくありません。')
     } else {
-      const { error } = await supabase.auth.signUp({ email, password })
-      if (error) {
-        setMessage({ type: 'error', text: error.message })
-      } else {
-        setMessage({
-          type: 'success',
-          text: '確認メールを送信しました。メールボックスをご確認ください。',
-        })
-      }
+      window.location.href = '/projects'
     }
 
     setLoading(false)
@@ -57,9 +43,7 @@ export default function LoginPage() {
 
         {/* カード */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-          <h2 className="text-lg font-semibold text-slate-800 mb-6">
-            {mode === 'login' ? 'ログイン' : 'アカウント作成'}
-          </h2>
+          <h2 className="text-lg font-semibold text-slate-800 mb-6">ログイン</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -90,20 +74,13 @@ export default function LoginPage() {
                 className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-slate-900 text-sm
                   focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
                   placeholder:text-slate-400"
-                placeholder="6文字以上"
-                minLength={6}
+                placeholder="パスワード"
               />
             </div>
 
-            {message && (
-              <div
-                className={`rounded-lg px-4 py-3 text-sm ${
-                  message.type === 'error'
-                    ? 'bg-red-50 text-red-700 border border-red-200'
-                    : 'bg-green-50 text-green-700 border border-green-200'
-                }`}
-              >
-                {message.text}
+            {error && (
+              <div className="rounded-lg px-4 py-3 text-sm bg-red-50 text-red-700 border border-red-200">
+                {error}
               </div>
             )}
 
@@ -114,23 +91,9 @@ export default function LoginPage() {
                 text-white font-medium py-2.5 px-4 rounded-lg text-sm
                 transition-colors duration-150 mt-2"
             >
-              {loading ? '処理中...' : mode === 'login' ? 'ログイン' : 'アカウントを作成'}
+              {loading ? '処理中...' : 'ログイン'}
             </button>
           </form>
-
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => {
-                setMode(mode === 'login' ? 'signup' : 'login')
-                setMessage(null)
-              }}
-              className="text-sm text-indigo-600 hover:text-indigo-700 hover:underline"
-            >
-              {mode === 'login'
-                ? 'アカウントをお持ちでない方はこちら'
-                : 'すでにアカウントをお持ちの方はこちら'}
-            </button>
-          </div>
         </div>
       </div>
     </div>
