@@ -20,7 +20,11 @@ export async function POST(req: NextRequest) {
   const validRoles = ['admin', 'member', 'viewer']
   const assignedRole = validRoles.includes(role) ? role : 'member'
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  // Vercel本番環境では VERCEL_PROJECT_PRODUCTION_URL が自動設定される
+  // これにより localhost から招待しても本番URLのリンクが送られる
+  const appUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')
   const redirectTo = `${appUrl}/auth/set-password`
 
   const adminClient = createAdminClient()
