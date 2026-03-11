@@ -30,32 +30,38 @@ export default function SetPasswordPage() {
       return
     }
 
+    // ハッシュにトークンがある場合は長めに待つ（15秒）、ない場合は短く（3秒）
+    const hasToken = hash.includes('access_token=')
+    const timeoutMs = hasToken ? 15000 : 3000
+
     const supabase = createClient()
 
-    // ハッシュに access_token がある場合、Supabase クライアントが自動処理して SIGNED_IN を発火する
+    const handleSession = (session: { user: { user_metadata?: { name?: string } } } | null) => {
+      if (!session) return
+      const metaName = session.user.user_metadata?.name
+      if (metaName) setName(metaName)
+      setSessionReady(true)
+      setChecking(false)
+    }
+
+    // ハッシュに access_token がある場合、Supabase クライアントが自動処理して認証イベントを発火する
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        const metaName = session.user.user_metadata?.name
-        if (metaName) setName(metaName)
-        setSessionReady(true)
-        setChecking(false)
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session) {
+        handleSession(session)
       }
     })
 
     // すでにセッションがある場合（リロード時など）
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        const metaName = session.user.user_metadata?.name
-        if (metaName) setName(metaName)
-        setSessionReady(true)
-        setChecking(false)
+        handleSession(session)
       }
     })
 
-    // ハッシュにトークンがない場合のフォールバック（5秒後に無効と判定）
+    // フォールバック：トークンがない場合は短く、ある場合は長めに待って無効と判定
     const timeout = setTimeout(() => {
       setChecking(false)
-    }, 5000)
+    }, timeoutMs)
 
     return () => {
       subscription.unsubscribe()
@@ -63,7 +69,7 @@ export default function SetPasswordPage() {
     }
   }, [])
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (password !== confirmPassword) {
       setSubmitError('パスワードが一致しません')
