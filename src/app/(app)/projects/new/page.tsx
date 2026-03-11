@@ -136,7 +136,10 @@ export default function NewProjectPage() {
 
     const supabase = createClient()
 
+    const { data: projectNo } = await supabase.rpc('generate_project_no')
+
     const { error: insertError } = await supabase.from('projects').insert({
+      project_no: projectNo as string,
       company_name: form.company_name.trim(),
       project_name: form.project_name.trim(),
       production_staff: form.production_staff.trim() || null,
