@@ -39,9 +39,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '登録するデータがありません' }, { status: 400 })
   }
 
+  // project_no をトリガーに頼らず明示的に採番する
+  // （Supabase環境でトリガーが適用されていない場合のフォールバック）
+  const projectsWithNo = await Promise.all(
+    projects.map(async (p) => {
+      const { data: no } = await supabase.rpc('generate_project_no')
+      return { ...p, project_no: no as string }
+    })
+  )
+
   const { data, error } = await supabase
     .from('projects')
-    .insert(projects)
+    .insert(projectsWithNo)
     .select('id, project_no')
 
   if (error) {
