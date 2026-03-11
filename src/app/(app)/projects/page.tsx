@@ -138,6 +138,8 @@ export default function HomePage() {
   const [lastMonthTotal, setLastMonthTotal]       = useState(0)
   const [analyticsLoading, setAnalyticsLoading]   = useState(true)
   const [dismissedAlerts, setDismissedAlerts]     = useState<Set<string>>(new Set())
+  const [alertsExpanded, setAlertsExpanded]       = useState(false)
+  const ALERTS_INITIAL = 3
 
   useEffect(() => { fetchProjects() }, [])
   useEffect(() => { fetchAnalytics() }, [])
@@ -334,7 +336,7 @@ export default function HomePage() {
       {/* ── 締切アラート ── */}
       {deadlineAlerts.length > 0 && (
         <div className="px-6 pt-3 pb-1 flex flex-col gap-1.5">
-          {deadlineAlerts.map(alert => {
+          {(alertsExpanded ? deadlineAlerts : deadlineAlerts.slice(0, ALERTS_INITIAL)).map(alert => {
             const styles = {
               red:    'bg-red-50 border-red-200 text-red-800',
               orange: 'bg-orange-50 border-orange-200 text-orange-800',
@@ -352,6 +354,17 @@ export default function HomePage() {
               </div>
             )
           })}
+          {deadlineAlerts.length > ALERTS_INITIAL && (
+            <button
+              onClick={() => setAlertsExpanded(v => !v)}
+              className="self-start text-xs text-slate-500 hover:text-slate-700 px-3 py-1.5
+                border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
+            >
+              {alertsExpanded
+                ? '▲ 閉じる'
+                : `▼ 他 ${deadlineAlerts.length - ALERTS_INITIAL} 件を表示`}
+            </button>
+          )}
         </div>
       )}
 
