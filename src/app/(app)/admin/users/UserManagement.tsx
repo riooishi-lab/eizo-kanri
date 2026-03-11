@@ -1,23 +1,51 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { UserPlus, Trash2, RefreshCw } from 'lucide-react'
+import { Mail, Trash2, RefreshCw, Shield, User, Eye } from 'lucide-react'
 
 type SupabaseUser = {
   id: string
   email?: string
-  user_metadata?: { name?: string }
+  user_metadata?: { name?: string; role?: string }
   created_at: string
   last_sign_in_at?: string
+}
+
+const ROLE_LABELS: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  admin: {
+    label: '管理者',
+    color: 'bg-purple-100 text-purple-700',
+    icon: <Shield className="w-3 h-3" />,
+  },
+  member: {
+    label: 'メンバー',
+    color: 'bg-blue-100 text-blue-700',
+    icon: <User className="w-3 h-3" />,
+  },
+  viewer: {
+    label: '閲覧のみ',
+    color: 'bg-slate-100 text-slate-600',
+    icon: <Eye className="w-3 h-3" />,
+  },
+}
+
+function RoleBadge({ role }: { role?: string }) {
+  const r = role && ROLE_LABELS[role] ? ROLE_LABELS[role] : ROLE_LABELS.member
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${r.color}`}>
+      {r.icon}
+      {r.label}
+    </span>
+  )
 }
 
 export default function UserManagement() {
   const [users, setUsers] = useState<SupabaseUser[]>([])
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [name, setName] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [role, setRole] = useState('member')
+  const [inviting, setInviting] = useState(false)
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -35,29 +63,29 @@ export default function UserManagement() {
     fetchUsers()
   }, [fetchUsers])
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleInvite(e: React.FormEvent) {
     e.preventDefault()
-    setCreating(true)
+    setInviting(true)
     setMessage(null)
 
-    const res = await fetch('/api/admin/create-user', {
+    const res = await fetch('/api/admin/invite-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, name, role }),
     })
     const data = await res.json()
 
     if (!res.ok) {
       setMessage({ type: 'error', text: data.error || 'エラーが発生しました' })
     } else {
-      setMessage({ type: 'success', text: `${email} のアカウントを作成しました` })
+      setMessage({ type: 'success', text: `${email} に招待メールを送信しました` })
       setEmail('')
-      setPassword('')
       setName('')
+      setRole('member')
       fetchUsers()
     }
 
-    setCreating(false)
+    setInviting(false)
   }
 
   async function handleDelete(userId: string, userEmail: string) {
@@ -87,14 +115,17 @@ export default function UserManagement() {
         <p className="text-slate-500 text-sm mt-1">管理者専用ページ</p>
       </div>
 
-      {/* アカウント作成フォーム */}
+      {/* 招待フォーム */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <h2 className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
-          <UserPlus className="w-4 h-4" />
-          新しいアカウントを作成
+        <h2 className="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2">
+          <Mail className="w-4 h-4" />
+          メールで招待する
         </h2>
+        <p className="text-xs text-slate-400 mb-4">
+          招待メールが送信されます。受け取った方がリンクからパスワードを設定してログインできます。
+        </p>
 
-        <form onSubmit={handleCreate} className="space-y-4">
+        <form onSubmit={handleInvite} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -127,18 +158,36 @@ export default function UserManagement() {
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
-              パスワード <span className="text-red-500">*</span>
+              権限
             </label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-slate-900 text-sm
-                focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              placeholder="6文字以上"
-            />
+            <div className="flex gap-3">
+              {Object.entries(ROLE_LABELS).map(([value, { label, color, icon }]) => (
+                <label
+                  key={value}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 cursor-pointer transition-all text-sm font-medium
+                    ${role === value
+                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                >
+                  <input
+                    type="radio"
+                    name="role"
+                    value={value}
+                    checked={role === value}
+                    onChange={() => setRole(value)}
+                    className="sr-only"
+                  />
+                  {icon}
+                  {label}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-2">
+              {role === 'admin' && '全ての機能にアクセスし、ユーザー管理もできます'}
+              {role === 'member' && 'プロジェクトの作成・編集・削除ができます'}
+              {role === 'viewer' && '閲覧のみ。編集・削除はできません'}
+            </p>
           </div>
 
           {message && (
@@ -153,11 +202,12 @@ export default function UserManagement() {
 
           <button
             type="submit"
-            disabled={creating}
+            disabled={inviting}
             className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400
-              text-white font-medium py-2.5 px-5 rounded-lg text-sm transition-colors"
+              text-white font-medium py-2.5 px-5 rounded-lg text-sm transition-colors flex items-center gap-2"
           >
-            {creating ? '作成中...' : 'アカウントを作成'}
+            <Mail className="w-4 h-4" />
+            {inviting ? '送信中...' : '招待メールを送る'}
           </button>
         </form>
       </div>
@@ -192,11 +242,14 @@ export default function UserManagement() {
           <div className="divide-y divide-slate-100">
             {users.map((u) => (
               <div key={u.id} className="flex items-center justify-between py-3">
-                <div>
-                  <div className="text-sm font-medium text-slate-800">
-                    {u.user_metadata?.name || '(名前未設定)'}
+                <div className="flex items-center gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-slate-800 flex items-center gap-2">
+                      {u.user_metadata?.name || '(名前未設定)'}
+                      <RoleBadge role={u.user_metadata?.role} />
+                    </div>
+                    <div className="text-xs text-slate-400 mt-0.5">{u.email}</div>
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">{u.email}</div>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-right">
