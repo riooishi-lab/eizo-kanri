@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/admin'
+import { getNextProjectNos } from '@/lib/project-no'
 
 type ProjectRow = {
   company_name: string
@@ -39,9 +40,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '登録するデータがありません' }, { status: 400 })
   }
 
+  // DBのトリガー・関数に依存せず JS 側で連番採番
+  const projectNos = await getNextProjectNos(supabase, projects.length)
+  const projectsWithNo = projects.map((p, i) => ({ ...p, project_no: projectNos[i] }))
+
   const { data, error } = await supabase
     .from('projects')
-    .insert(projects)
+    .insert(projectsWithNo)
     .select('id, project_no')
 
   if (error) {

@@ -136,7 +136,12 @@ export default function NewProjectPage() {
 
     const supabase = createClient()
 
+    // DBのトリガー・関数に依存せず JS 側で採番
+    const { getNextProjectNos } = await import('@/lib/project-no')
+    const [projectNo] = await getNextProjectNos(supabase)
+
     const { error: insertError } = await supabase.from('projects').insert({
+      project_no: projectNo,
       company_name: form.company_name.trim(),
       project_name: form.project_name.trim(),
       production_staff: form.production_staff.trim() || null,
