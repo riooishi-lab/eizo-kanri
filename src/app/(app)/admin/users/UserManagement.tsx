@@ -48,6 +48,11 @@ export default function UserManagement() {
   const [inviting, setInviting] = useState(false)
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [isLocalhost, setIsLocalhost] = useState(false)
+
+  useEffect(() => {
+    setIsLocalhost(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  }, [])
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
@@ -127,6 +132,11 @@ export default function UserManagement() {
         <p className="text-xs text-slate-400 mb-4">
           招待メールが送信されます。受け取った方がリンクからパスワードを設定してログインできます。
         </p>
+        {isLocalhost && (
+          <div className="mb-4 rounded-lg px-4 py-3 text-sm bg-amber-50 text-amber-700 border border-amber-200">
+            ローカル環境からの招待です。招待メールのリンクは本番URL（Vercel）を指します。
+          </div>
+        )}
 
         <form onSubmit={handleInvite} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
