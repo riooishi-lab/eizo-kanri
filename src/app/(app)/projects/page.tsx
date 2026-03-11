@@ -20,7 +20,30 @@ import {
 
 type ViewMode      = 'kanban' | 'list'
 type GanttSort     = 'created' | 'final' | 'first_draft' | 'days_left'
+type GanttSortDir  = 'asc' | 'desc'
 type GanttFilterKey = 'status' | 'priority' | 'company_name' | 'production_staff'
+
+const LS_VIEW_KEY          = 'projects_viewMode'
+const LS_SEARCH_KEY        = 'projects_searchQuery'
+const LS_GANTT_SORT_KEY    = 'projects_ganttSort'
+const LS_GANTT_SORTDIR_KEY = 'projects_ganttSortDir'
+const LS_GANTT_FILTER_KEY  = 'projects_ganttFilters'
+
+function serializeGanttFilters(f: Record<GanttFilterKey, Set<string>>): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(f).map(([k, v]) => [k, [...v]]))
+}
+function deserializeGanttFilters(obj: Record<string, string[]>): Record<GanttFilterKey, Set<string>> {
+  return {
+    status:           new Set(obj.status ?? []),
+    priority:         new Set(obj.priority ?? []),
+    company_name:     new Set(obj.company_name ?? []),
+    production_staff: new Set(obj.production_staff ?? []),
+  }
+}
+
+function lsGet<T>(key: string, fallback: T): T {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback } catch { return fallback }
+}
 
 const PRIORITY_LABELS: Record<ProjectPriority, string> = {
   must: 'MUST', should: 'SHOULD', want: 'WANT',
@@ -44,10 +67,10 @@ const WORK_TYPE_COLORS: Record<string, string> = {
 const G_BEFORE = 30
 const G_AFTER  = 30
 const G_TOTAL  = G_BEFORE + G_AFTER + 1   // 61日
-const DAY_W    = 28                        // 1列の幅 (px)
-const LEFT_W   = 228                       // 左固定列幅 (px)
-const BAR_H    = 10                        // バー高さ (px)
-const ROW_H    = 60                        // 行高さ (px)
+const DAY_W    = 30                        // 1列の幅 (px)
+const LEFT_W   = 240                       // 左固定列幅 (px)
+const BAR_H    = 16                        // バー高さ (px)
+const ROW_H    = 52                        // 行高さ (px)
 
 const SEGMENTS: Array<{ key: keyof Project; label: string; color: string }> = [
   { key: 'storyboard_date',  label: 'コンテ', color: '#3B82F6' },
@@ -138,10 +161,13 @@ export default function HomePage() {
 
   const [projects, setProjects]       = useState<Project[]>([])
   const [loading, setLoading]         = useState(true)
-  const [viewMode, setViewMode]       = useState<ViewMode>('kanban')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [ganttSort, setGanttSort]         = useState<GanttSort>('created')
-  const [ganttFilters, setGanttFilters]   = useState<Record<GanttFilterKey, Set<string>>>(EMPTY_GANTT_FILTERS)
+  const [viewMode, setViewMode]       = useState<ViewMode>(() => lsGet<ViewMode>(LS_VIEW_KEY, 'kanban'))
+  const [searchQuery, setSearchQuery] = useState<string>(() => lsGet<string>(LS_SEARCH_KEY, ''))
+  const [ganttSort, setGanttSort]         = useState<GanttSort>(() => lsGet<GanttSort>(LS_GANTT_SORT_KEY, 'created'))
+  const [ganttSortDir, setGanttSortDir]   = useState<GanttSortDir>(() => lsGet<GanttSortDir>(LS_GANTT_SORTDIR_KEY, 'asc'))
+  const [ganttFilters, setGanttFilters]   = useState<Record<GanttFilterKey, Set<string>>>(() => {
+    try { const v = localStorage.getItem(LS_GANTT_FILTER_KEY); return v ? deserializeGanttFilters(JSON.parse(v)) : EMPTY_GANTT_FILTERS } catch { return EMPTY_GANTT_FILTERS }
+  })
   const [ganttFilterOpen, setGanttFilterOpen] = useState<GanttFilterKey | null>(null)
 
   const [workLogs, setWorkLogs]                   = useState<WorkLog[]>([])
@@ -152,6 +178,13 @@ export default function HomePage() {
   const [dismissedAlerts, setDismissedAlerts]     = useState<Set<string>>(new Set())
   const [alertsExpanded, setAlertsExpanded]       = useState(false)
   const ALERTS_INITIAL = 3
+
+  // localStorage 永続化
+  useEffect(() => { localStorage.setItem(LS_VIEW_KEY, JSON.stringify(viewMode)) }, [viewMode])
+  useEffect(() => { localStorage.setItem(LS_SEARCH_KEY, JSON.stringify(searchQuery)) }, [searchQuery])
+  useEffect(() => { localStorage.setItem(LS_GANTT_SORT_KEY, JSON.stringify(ganttSort)) }, [ganttSort])
+  useEffect(() => { localStorage.setItem(LS_GANTT_SORTDIR_KEY, JSON.stringify(ganttSortDir)) }, [ganttSortDir])
+  useEffect(() => { localStorage.setItem(LS_GANTT_FILTER_KEY, JSON.stringify(serializeGanttFilters(ganttFilters))) }, [ganttFilters])
 
   useEffect(() => { fetchProjects() }, [])
   useEffect(() => { fetchAnalytics() }, [])
@@ -225,6 +258,15 @@ export default function HomePage() {
     })
   }
 
+  function handleGanttSort(val: GanttSort) {
+    if (ganttSort === val) {
+      setGanttSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setGanttSort(val)
+      setGanttSortDir('asc')
+    }
+  }
+
   const ganttProjects = useMemo(() => {
     const arr = [...projects]
       .filter(p => SEGMENTS.some(ms => p[ms.key] != null))
@@ -238,20 +280,22 @@ export default function HomePage() {
         }
         return true
       })
+    const dir = ganttSortDir === 'asc' ? 1 : -1
     switch (ganttSort) {
       case 'final':
-        return arr.sort((a, b) => (!a.final_date ? 1 : !b.final_date ? -1 : a.final_date.localeCompare(b.final_date)))
+        return arr.sort((a, b) => (!a.final_date ? 1 : !b.final_date ? -1 : a.final_date.localeCompare(b.final_date) * dir))
       case 'first_draft':
-        return arr.sort((a, b) => (!a.first_draft_date ? 1 : !b.first_draft_date ? -1 : a.first_draft_date.localeCompare(b.first_draft_date)))
+        return arr.sort((a, b) => (!a.first_draft_date ? 1 : !b.first_draft_date ? -1 : a.first_draft_date.localeCompare(b.first_draft_date) * dir))
       case 'days_left':
         return arr.sort((a, b) => {
           const aD = a.final_date ? dayDiff(a.final_date, todayStr) : Infinity
           const bD = b.final_date ? dayDiff(b.final_date, todayStr) : Infinity
-          return aD - bD
+          return (aD - bD) * dir
         })
-      default: return arr
+      default:
+        return ganttSortDir === 'desc' ? arr.reverse() : arr
     }
-  }, [projects, ganttSort, ganttFilters, todayStr])
+  }, [projects, ganttSort, ganttSortDir, ganttFilters, todayStr])
 
   // ── 締切アラート ──────────────────────────────────────────────────────────
   type DeadlineAlert = { id: string; level: 'red' | 'orange' | 'yellow'; message: string; href: string }
@@ -442,14 +486,19 @@ export default function HomePage() {
               ['first_draft','初稿順'],
               ['days_left',  '残り日数順'],
             ] as [GanttSort, string][]).map(([val, label]) => (
-              <button key={val} onClick={() => setGanttSort(val)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+              <button key={val} onClick={() => handleGanttSort(val)}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
                   ganttSort === val
                     ? 'bg-indigo-600 text-white border-indigo-600'
                     : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
                 }`}
               >
                 {label}
+                {ganttSort === val && (
+                  ganttSortDir === 'asc'
+                    ? <span className="text-[10px]">↑</span>
+                    : <span className="text-[10px]">↓</span>
+                )}
               </button>
             ))}
           </div>
@@ -504,7 +553,7 @@ export default function HomePage() {
         {/* テーブル本体 */}
         {!loading && (
           <div
-            className="border border-slate-200 rounded-xl overflow-auto bg-white"
+            className="border border-slate-200 rounded-xl overflow-auto bg-white shadow-sm"
             style={{ minHeight: 400 }}
           >
             <table
@@ -512,44 +561,79 @@ export default function HomePage() {
               style={{ tableLayout: 'fixed', minWidth: LEFT_W + G_TOTAL * DAY_W }}
             >
               <thead>
-                <tr className="bg-slate-50">
+                {/* 月ラベル行 */}
+                <tr className="bg-slate-100">
                   <th
-                    className="border-b border-r border-slate-200 bg-slate-50 text-left px-3 py-2
-                      text-xs font-semibold text-slate-600"
+                    className="border-b border-r border-slate-200 bg-slate-100"
                     style={{ width: LEFT_W, minWidth: LEFT_W, position: 'sticky', left: 0, top: 0, zIndex: 50 }}
+                  />
+                  {(() => {
+                    // 連続する同じ月をグループ化してcolspanで描画
+                    const groups: { month: string; count: number; isCurrentMonth: boolean }[] = []
+                    ganttDays.forEach(day => {
+                      const label = `${day.getMonth() + 1}月`
+                      const isCurrentMonth = day.getMonth() === new Date().getMonth() && day.getFullYear() === new Date().getFullYear()
+                      if (groups.length > 0 && groups[groups.length - 1].month === label) {
+                        groups[groups.length - 1].count++
+                      } else {
+                        groups.push({ month: label, count: 1, isCurrentMonth })
+                      }
+                    })
+                    return groups.map((g, i) => (
+                      <th
+                        key={i}
+                        colSpan={g.count}
+                        className={`text-center text-[11px] font-bold border-b border-r border-slate-200 py-1 select-none ${
+                          g.isCurrentMonth ? 'text-indigo-700 bg-indigo-50' : 'text-slate-500 bg-slate-100'
+                        }`}
+                        style={{ position: 'sticky', top: 0, zIndex: 20 }}
+                      >
+                        {g.month}
+                      </th>
+                    ))
+                  })()}
+                </tr>
+                {/* 日付行 */}
+                <tr className="bg-white">
+                  <th
+                    className="border-b-2 border-r border-slate-200 bg-white text-left px-3 py-1.5
+                      text-xs font-semibold text-slate-600"
+                    style={{ width: LEFT_W, minWidth: LEFT_W, position: 'sticky', left: 0, top: 24, zIndex: 50 }}
                   >
                     案件
                   </th>
                   {ganttDays.map((day, i) => {
-                    const isToday   = i === todayIdx
-                    const isMon     = day.getDay() === 1
-                    const is1st     = day.getDate() === 1
-                    const showLabel = isToday || isMon || is1st
+                    const isToday = i === todayIdx
+                    const isSat   = day.getDay() === 6
+                    const isSun   = day.getDay() === 0
                     return (
                       <th
                         key={i}
-                        className={`border-b border-slate-200 text-center select-none ${
-                          isToday ? 'bg-rose-50 border-x-2 border-x-rose-400' : 'bg-slate-50'
+                        className={`border-b-2 text-center select-none ${
+                          isToday
+                            ? 'bg-rose-500 border-rose-500'
+                            : isSun ? 'bg-red-50 border-slate-200'
+                            : isSat ? 'bg-blue-50 border-slate-200'
+                            : 'bg-white border-slate-200'
                         }`}
-                        style={{ width: DAY_W, minWidth: DAY_W, padding: '2px 0', position: 'sticky', top: 0, zIndex: 20 }}
+                        style={{ width: DAY_W, minWidth: DAY_W, padding: '2px 0', position: 'sticky', top: 24, zIndex: 20 }}
                       >
-                        {showLabel ? (
-                          <div className="flex flex-col items-center leading-none">
-                            <span className={`text-[9px] font-semibold ${
-                              isToday ? 'text-rose-600' : is1st ? 'text-indigo-600' : 'text-slate-400'
-                            }`}>
-                              {isToday ? '今日' : `${day.getMonth() + 1}/${day.getDate()}`}
-                            </span>
-                            <span className={`text-[8px] ${
-                              day.getDay() === 0 ? 'text-red-400' :
-                              day.getDay() === 6 ? 'text-blue-400' : 'text-slate-300'
-                            }`}>
-                              {DOW_JA[day.getDay()]}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-[9px] text-slate-300">{day.getDate()}</span>
-                        )}
+                        <div className="flex flex-col items-center leading-none gap-px">
+                          <span className={`text-[9px] font-bold ${
+                            isToday ? 'text-white' :
+                            isSun ? 'text-red-500' :
+                            isSat ? 'text-blue-500' : 'text-slate-500'
+                          }`}>
+                            {day.getDate()}
+                          </span>
+                          <span className={`text-[8px] ${
+                            isToday ? 'text-rose-100' :
+                            isSun ? 'text-red-400' :
+                            isSat ? 'text-blue-400' : 'text-slate-300'
+                          }`}>
+                            {DOW_JA[day.getDay()]}
+                          </span>
+                        </div>
                       </th>
                     )
                   })}
@@ -566,32 +650,33 @@ export default function HomePage() {
                   const isOverrun   = (p.estimated_hours != null && p.actual_hours != null && p.actual_hours > p.estimated_hours)
                   const isCompleted = p.final_date != null && p.final_date < todayStr
                   const barInfo     = buildBarSegments(p, dayStrs)
-                  const rowBg       = ri % 2 === 0 ? '#ffffff' : 'rgba(248,250,252,0.6)'
+                  const rowBg       = ri % 2 === 0 ? '#ffffff' : '#f8fafc'
 
                   return (
-                    <tr key={p.id}>
+                    <tr key={p.id} className="group">
                       <td
-                        className="border-b border-r border-slate-100 px-3 py-2"
+                        className="border-b border-r border-slate-100 px-3 py-2 group-hover:bg-indigo-50 transition-colors"
                         style={{ position: 'sticky', left: 0, zIndex: 10, background: rowBg, width: LEFT_W, minWidth: LEFT_W }}
                       >
-                        <Link href={`/projects/${p.id}`} className="block hover:opacity-80">
+                        <Link href={`/projects/${p.id}`} className="block">
                           <div className="flex items-center gap-1">
-                            <p className="text-xs font-medium text-slate-900 truncate leading-tight flex-1">{p.project_name}</p>
+                            <p className="text-xs font-semibold text-slate-800 truncate leading-tight flex-1">{p.project_name}</p>
                             {isOverrun && (
                               <span className="shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded text-[9px] font-bold bg-red-100 text-red-600 border border-red-200">
-                                <AlertTriangle className="w-2.5 h-2.5" />工数超過
+                                <AlertTriangle className="w-2.5 h-2.5" />超過
                               </span>
                             )}
                           </div>
-                          <p className="text-[10px] text-slate-400 truncate leading-tight">{p.company_name}</p>
+                          <p className="text-[10px] text-slate-400 truncate leading-tight mt-0.5">{p.company_name}</p>
                         </Link>
-                        <span className={`inline-flex items-center mt-0.5 px-1.5 py-px rounded-full text-[9px] font-medium border ${PROJECT_STATUS_COLORS[p.status]}`}>
+                        <span className={`inline-flex items-center mt-1 px-1.5 py-px rounded-full text-[9px] font-medium border ${PROJECT_STATUS_COLORS[p.status]}`}>
                           {p.status}
                         </span>
                       </td>
 
                       <td colSpan={G_TOTAL} style={{ padding: 0, height: ROW_H, background: rowBg }}>
                         <div style={{ position: 'relative', width: G_TOTAL * DAY_W, height: ROW_H }}>
+                          {/* 列背景 */}
                           {ganttDays.map((day, di) => {
                             const isSat   = day.getDay() === 6
                             const isSun   = day.getDay() === 0
@@ -601,19 +686,21 @@ export default function HomePage() {
                               <div key={di} style={{
                                 position: 'absolute', left: di * DAY_W, width: DAY_W,
                                 top: 0, bottom: 0, pointerEvents: 'none',
-                                backgroundColor: isToday ? 'rgba(239,68,68,0.07)'
-                                  : isSat ? 'rgba(59,130,246,0.04)' : 'rgba(239,68,68,0.03)',
+                                backgroundColor: isToday ? 'rgba(239,68,68,0.06)'
+                                  : isSat ? 'rgba(59,130,246,0.05)' : 'rgba(239,68,68,0.04)',
                               }} />
                             )
                           })}
 
+                          {/* バー */}
                           {barInfo && (
-                            <div className={isOverrun ? 'animate-pulse' : ''} style={{ opacity: isCompleted ? 0.4 : 1 }}>
+                            <div className={isOverrun ? 'animate-pulse' : ''} style={{ opacity: isCompleted ? 0.45 : 1 }}>
                               <div style={{
                                 position: 'absolute', left: barInfo.barLeft,
                                 width: barInfo.barRight - barInfo.barLeft,
                                 top: (ROW_H - BAR_H) / 2, height: BAR_H,
-                                borderRadius: 4, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                                borderRadius: 8, overflow: 'hidden',
+                                boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
                               }}>
                                 {barInfo.segments.flatMap((seg, si) => {
                                   const relSplit    = todayLineX - barInfo.barLeft
@@ -621,20 +708,27 @@ export default function HomePage() {
                                   const futureLeft  = Math.max(seg.relStart, relSplit)
                                   const futureWidth = Math.max(0, seg.relEnd - futureLeft)
                                   const els: React.ReactNode[] = []
-                                  if (pastWidth > 0) els.push(<div key={`p-${si}`} style={{ position: 'absolute', left: seg.relStart, width: pastWidth, top: 0, bottom: 0, backgroundColor: seg.color }} />)
-                                  if (futureWidth > 0) els.push(<div key={`f-${si}`} style={{ position: 'absolute', left: futureLeft, width: futureWidth, top: 0, bottom: 0, backgroundColor: seg.color, opacity: 0.28 }} />)
-                                  if (si < barInfo.segments.length - 1) els.push(<div key={`d-${si}`} style={{ position: 'absolute', left: seg.relEnd - 0.5, width: 1, top: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.55)' }} />)
+                                  if (pastWidth > 0) els.push(
+                                    <div key={`p-${si}`} style={{ position: 'absolute', left: seg.relStart, width: pastWidth, top: 0, bottom: 0, backgroundColor: seg.color }} />
+                                  )
+                                  if (futureWidth > 0) els.push(
+                                    <div key={`f-${si}`} style={{ position: 'absolute', left: futureLeft, width: futureWidth, top: 0, bottom: 0, backgroundColor: seg.color, opacity: 0.35 }} />
+                                  )
+                                  if (si < barInfo.segments.length - 1) els.push(
+                                    <div key={`d-${si}`} style={{ position: 'absolute', left: seg.relEnd - 0.5, width: 1, top: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.6)' }} />
+                                  )
                                   return els
                                 })}
                               </div>
                               {isOverrun && (
-                                <div style={{ position: 'absolute', left: Math.max(barInfo.barLeft, barInfo.barRight - 20), top: (ROW_H - BAR_H) / 2 - 12, zIndex: 6 }}>
-                                  <AlertTriangle style={{ width: 11, height: 11, color: '#EF4444' }} />
+                                <div style={{ position: 'absolute', left: Math.max(barInfo.barLeft, barInfo.barRight - 20), top: (ROW_H - BAR_H) / 2 - 14, zIndex: 6 }}>
+                                  <AlertTriangle style={{ width: 12, height: 12, color: '#EF4444' }} />
                                 </div>
                               )}
                             </div>
                           )}
 
+                          {/* マイルストーンドット */}
                           {SEGMENTS.map(ms => {
                             const date = p[ms.key] as string | null
                             if (!date) return null
@@ -644,17 +738,19 @@ export default function HomePage() {
                             const isPast = date < todayStr
                             return (
                               <div key={ms.key as string} title={msTooltip(ms.label, date, todayStr)} style={{
-                                position: 'absolute', left: x - 5, top: (ROW_H - BAR_H) / 2 - 2,
-                                width: 10, height: 10, borderRadius: '50%', backgroundColor: ms.color,
-                                border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                opacity: isPast ? 0.5 : 1, zIndex: 4, cursor: 'help',
+                                position: 'absolute', left: x - 6, top: (ROW_H - BAR_H) / 2 - 3,
+                                width: 12, height: 12, borderRadius: '50%', backgroundColor: ms.color,
+                                border: '2.5px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+                                opacity: isPast ? 0.45 : 1, zIndex: 4, cursor: 'help',
                               }} />
                             )
                           })}
 
+                          {/* 今日ライン */}
                           <div style={{
                             position: 'absolute', left: todayLineX - 1, width: 2,
-                            top: '8%', bottom: '8%', backgroundColor: '#EF4444', borderRadius: 1, zIndex: 5,
+                            top: '5%', bottom: '5%', backgroundColor: '#EF4444',
+                            borderRadius: 2, zIndex: 5, boxShadow: '0 0 4px rgba(239,68,68,0.5)',
                           }} />
                         </div>
                       </td>

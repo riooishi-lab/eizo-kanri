@@ -57,7 +57,7 @@ export default function Header() {
     <header className="bg-gray-900 h-14 sticky top-0 z-40 border-b border-gray-800 flex">
       {/* 左：ロゴ */}
       <div className="flex items-center px-5 w-52 shrink-0">
-        <span className="text-white font-semibold text-sm tracking-wide">🎬 映像制作管理</span>
+        <Link href="/projects" className="text-white font-semibold text-sm tracking-wide hover:text-slate-300 transition-colors">🎬 映像制作管理</Link>
       </div>
 
       {/* 中央：タブナビゲーション */}
