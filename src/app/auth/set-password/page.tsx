@@ -1,69 +1,81 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Film, CheckCircle, AlertCircle } from 'lucide-react'
 
-function SetPasswordForm() {
-  const searchParams = useSearchParams()
+export default function SetPasswordPage() {
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
   const [checking, setChecking] = useState(true)
+  const [linkError, setLinkError] = useState<string | null>(null)
 
   useEffect(() => {
-    const tokenHash = searchParams.get('token_hash')
-    const type = searchParams.get('type')
-
-    async function verifyInvite() {
-      const supabase = createClient()
-
-      // PKCE フロー: token_hash + type=invite でセッションを確立
-      if (tokenHash && type === 'invite') {
-        const { data, error } = await supabase.auth.verifyOtp({
-          token_hash: tokenHash,
-          type: 'invite',
-        })
-        if (!error && data.user) {
-          const metaName = data.user.user_metadata?.name
-          if (metaName) setName(metaName)
-          setSessionReady(true)
-        }
-        setChecking(false)
-        return
+    // URLハッシュのエラーを先にチェック（Supabaseがエラー時にハッシュで返す）
+    const hash = window.location.hash
+    if (hash.includes('error=')) {
+      const params = new URLSearchParams(hash.slice(1))
+      const errorCode = params.get('error_code')
+      if (errorCode === 'otp_expired') {
+        setLinkError('招待リンクの有効期限が切れています。管理者に再送信を依頼してください。')
+      } else {
+        setLinkError('招待リンクが無効です。管理者に再送信を依頼してください。')
       }
+      setChecking(false)
+      return
+    }
 
-      // すでにセッションがある場合（リロード時など）
-      const { data: { session } } = await supabase.auth.getSession()
+    const supabase = createClient()
+
+    // ハッシュに access_token がある場合、Supabase クライアントが自動処理して SIGNED_IN を発火する
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        const metaName = session.user.user_metadata?.name
+        if (metaName) setName(metaName)
+        setSessionReady(true)
+        setChecking(false)
+      }
+    })
+
+    // すでにセッションがある場合（リロード時など）
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         const metaName = session.user.user_metadata?.name
         if (metaName) setName(metaName)
         setSessionReady(true)
+        setChecking(false)
       }
-      setChecking(false)
-    }
+    })
 
-    verifyInvite()
-  }, [searchParams])
+    // ハッシュにトークンがない場合のフォールバック（5秒後に無効と判定）
+    const timeout = setTimeout(() => {
+      setChecking(false)
+    }, 5000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (password !== confirmPassword) {
-      setError('パスワードが一致しません')
+      setSubmitError('パスワードが一致しません')
       return
     }
     if (password.length < 6) {
-      setError('パスワードは6文字以上で入力してください')
+      setSubmitError('パスワードは6文字以上で入力してください')
       return
     }
 
     setLoading(true)
-    setError(null)
+    setSubmitError(null)
 
     const supabase = createClient()
     const { error } = await supabase.auth.updateUser({
@@ -72,7 +84,7 @@ function SetPasswordForm() {
     })
 
     if (error) {
-      setError('パスワードの設定に失敗しました: ' + error.message)
+      setSubmitError('パスワードの設定に失敗しました: ' + error.message)
     } else {
       setSuccess(true)
       setTimeout(() => {
@@ -105,7 +117,7 @@ function SetPasswordForm() {
     )
   }
 
-  if (!sessionReady) {
+  if (linkError || !sessionReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="w-full max-w-md">
@@ -113,8 +125,7 @@ function SetPasswordForm() {
             <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
             <h2 className="text-xl font-bold text-slate-800 mb-2">リンクが無効です</h2>
             <p className="text-slate-500 text-sm">
-              招待リンクの有効期限が切れているか、すでに使用済みです。
-              管理者に再送信を依頼してください。
+              {linkError || '招待リンクの有効期限が切れているか、すでに使用済みです。管理者に再送信を依頼してください。'}
             </p>
           </div>
         </div>
@@ -186,9 +197,9 @@ function SetPasswordForm() {
               />
             </div>
 
-            {error && (
+            {submitError && (
               <div className="rounded-lg px-4 py-3 text-sm bg-red-50 text-red-700 border border-red-200">
-                {error}
+                {submitError}
               </div>
             )}
 
@@ -205,17 +216,5 @@ function SetPasswordForm() {
         </div>
       </div>
     </div>
-  )
-}
-
-export default function SetPasswordPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-slate-400 text-sm">読み込み中...</div>
-      </div>
-    }>
-      <SetPasswordForm />
-    </Suspense>
   )
 }
