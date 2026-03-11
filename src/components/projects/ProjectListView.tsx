@@ -1,11 +1,18 @@
-import type { Project } from '@/types/project'
+'use client'
+
+import { useState, useMemo, useRef, useEffect } from 'react'
+import type { Project, ProjectPriority } from '@/types/project'
+import { PROJECT_STATUSES } from '@/types/project'
 import { StatusBadge, PriorityBadge } from './StatusBadge'
 import Link from 'next/link'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, ChevronDown, Filter } from 'lucide-react'
 
 interface ProjectListViewProps {
   projects: Project[]
 }
+
+type ColumnKey = 'status' | 'priority' | 'company_name' | 'production_staff'
+
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'
@@ -21,7 +28,142 @@ function formatCurrency(amount: number | null): string {
   return `¥${amount.toLocaleString()}`
 }
 
+const PRIORITY_LABELS: Record<ProjectPriority, string> = {
+  must: 'MUST',
+  should: 'SHOULD',
+  want: 'WANT',
+}
+
+function FilterDropdown({
+  options,
+  selected,
+  onChange,
+  onClose,
+}: {
+  options: string[]
+  selected: Set<string>
+  onChange: (val: string) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [onClose])
+
+  return (
+    <div
+      ref={ref}
+      className="absolute top-full left-0 mt-1 z-50 bg-white border border-slate-200 rounded-lg shadow-lg min-w-[160px] py-1"
+    >
+      {options.map(opt => (
+        <label
+          key={opt}
+          className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer text-sm text-slate-700"
+        >
+          <input
+            type="checkbox"
+            checked={selected.has(opt)}
+            onChange={() => onChange(opt)}
+            className="accent-indigo-600 w-3.5 h-3.5"
+          />
+          {opt}
+        </label>
+      ))}
+    </div>
+  )
+}
+
 export default function ProjectListView({ projects }: ProjectListViewProps) {
+  const [filters, setFilters] = useState<Record<ColumnKey, Set<string>>>({
+    status: new Set(),
+    priority: new Set(),
+    company_name: new Set(),
+    production_staff: new Set(),
+  })
+  const [openColumn, setOpenColumn] = useState<ColumnKey | null>(null)
+
+  // 各列のユニーク値を取得
+  const columnOptions = useMemo(() => ({
+    status: [...PROJECT_STATUSES] as string[],
+    priority: ['MUST', 'SHOULD', 'WANT'] as string[],
+    company_name: [...new Set(projects.map(p => p.company_name).filter(Boolean))].sort(),
+    production_staff: [...new Set(projects.map(p => p.production_staff ?? '（未設定）'))].sort(),
+  }), [projects])
+
+  function toggleFilter(col: ColumnKey, val: string) {
+    setFilters(prev => {
+      const next = new Set(prev[col])
+      next.has(val) ? next.delete(val) : next.add(val)
+      return { ...prev, [col]: next }
+    })
+  }
+
+  function toggleColumn(col: ColumnKey) {
+    setOpenColumn(prev => (prev === col ? null : col))
+  }
+
+  const filteredProjects = useMemo(() => {
+    return projects.filter(p => {
+      if (filters.status.size > 0 && !filters.status.has(p.status)) return false
+      if (filters.priority.size > 0 && !filters.priority.has(PRIORITY_LABELS[p.priority])) return false
+      if (filters.company_name.size > 0 && !filters.company_name.has(p.company_name)) return false
+      if (filters.production_staff.size > 0) {
+        const staff = p.production_staff ?? '（未設定）'
+        if (!filters.production_staff.has(staff)) return false
+      }
+      return true
+    })
+  }, [projects, filters])
+
+  const isFiltered = Object.values(filters).some(s => s.size > 0)
+
+  function FilterHeader({
+    col,
+    label,
+  }: {
+    col: ColumnKey
+    label: string
+  }) {
+    const active = filters[col].size > 0
+    return (
+      <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">
+        <div className="relative inline-flex items-center gap-1">
+          <button
+            onClick={() => toggleColumn(col)}
+            className={`flex items-center gap-1 rounded px-1 -mx-1 hover:bg-slate-200 transition-colors ${active ? 'text-indigo-600' : ''}`}
+          >
+            {active ? (
+              <Filter className="w-3 h-3 fill-indigo-600" />
+            ) : (
+              <ChevronDown className="w-3 h-3 opacity-40" />
+            )}
+            {label}
+            {active && (
+              <span className="ml-0.5 text-[10px] bg-indigo-100 text-indigo-700 rounded-full px-1 font-semibold">
+                {filters[col].size}
+              </span>
+            )}
+          </button>
+          {openColumn === col && (
+            <FilterDropdown
+              options={columnOptions[col]}
+              selected={filters[col]}
+              onChange={val => toggleFilter(col, val)}
+              onClose={() => setOpenColumn(null)}
+            />
+          )}
+        </div>
+      </th>
+    )
+  }
+
   if (projects.length === 0) {
     return (
       <div className="text-center py-20 text-slate-400">
@@ -33,50 +175,70 @@ export default function ProjectListView({ projects }: ProjectListViewProps) {
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      {isFiltered && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border-b border-indigo-100 text-xs text-indigo-700">
+          <Filter className="w-3 h-3" />
+          <span>フィルター適用中 — {filteredProjects.length} / {projects.length} 件表示</span>
+          <button
+            onClick={() => setFilters({ status: new Set(), priority: new Set(), company_name: new Set(), production_staff: new Set() })}
+            className="ml-auto text-indigo-500 hover:text-indigo-700 underline"
+          >
+            クリア
+          </button>
+        </div>
+      )}
       <div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-slate-50 border-b border-slate-200" style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-            <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">案件No</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">案件名</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">会社名</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">ステータス</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">優先度</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">制作担当</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">撮影日</th>
-            <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">予算</th>
-            <th className="px-4 py-3 bg-slate-50"></th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {projects.map((project) => (
-            <tr
-              key={project.id}
-              className="hover:bg-slate-50 transition-colors"
-            >
-              <td className="px-4 py-3 font-mono text-xs text-slate-400">{project.project_no}</td>
-              <td className="px-4 py-3">
-                <span className="font-medium text-slate-900">{project.project_name}</span>
-              </td>
-              <td className="px-4 py-3 text-slate-600">{project.company_name}</td>
-              <td className="px-4 py-3">
-                <StatusBadge status={project.status} />
-              </td>
-              <td className="px-4 py-3">
-                <PriorityBadge priority={project.priority} />
-              </td>
-              <td className="px-4 py-3 text-slate-600">{project.production_staff || '—'}</td>
-              <td className="px-4 py-3 text-slate-600">{formatDate(project.shooting_date)}</td>
-              <td className="px-4 py-3 text-slate-600">{formatCurrency(project.budget)}</td>
-              <td className="px-4 py-3">
-                <Link href={`/projects/${project.id}`}>
-                  <ChevronRight className="w-4 h-4 text-slate-400 hover:text-indigo-600 transition-colors" />
-                </Link>
-              </td>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200" style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+              <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">案件No</th>
+              <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">案件名</th>
+              <FilterHeader col="company_name" label="会社名" />
+              <FilterHeader col="status" label="ステータス" />
+              <FilterHeader col="priority" label="優先度" />
+              <FilterHeader col="production_staff" label="制作担当" />
+              <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">撮影日</th>
+              <th className="text-left px-4 py-3 font-medium text-slate-600 text-xs bg-slate-50">予算</th>
+              <th className="px-4 py-3 bg-slate-50"></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {filteredProjects.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="text-center py-12 text-slate-400 text-sm">
+                  条件に一致する案件がありません
+                </td>
+              </tr>
+            ) : (
+              filteredProjects.map((project) => (
+                <tr
+                  key={project.id}
+                  className="hover:bg-slate-50 transition-colors"
+                >
+                  <td className="px-4 py-3 font-mono text-xs text-slate-400">{project.project_no}</td>
+                  <td className="px-4 py-3">
+                    <span className="font-medium text-slate-900">{project.project_name}</span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{project.company_name}</td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={project.status} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <PriorityBadge priority={project.priority} />
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{project.production_staff || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600">{formatDate(project.shooting_date)}</td>
+                  <td className="px-4 py-3 text-slate-600">{formatCurrency(project.budget)}</td>
+                  <td className="px-4 py-3">
+                    <Link href={`/projects/${project.id}`}>
+                      <ChevronRight className="w-4 h-4 text-slate-400 hover:text-indigo-600 transition-colors" />
+                    </Link>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   )
