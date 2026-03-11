@@ -63,7 +63,7 @@ export default function UserManagement() {
     fetchUsers()
   }, [fetchUsers])
 
-  async function handleInvite(e: React.FormEvent) {
+  async function handleInvite(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setInviting(true)
     setMessage(null)
@@ -78,7 +78,10 @@ export default function UserManagement() {
     if (!res.ok) {
       setMessage({ type: 'error', text: data.error || 'エラーが発生しました' })
     } else {
-      setMessage({ type: 'success', text: `${email} に招待メールを送信しました` })
+      const text = data.resent
+        ? `${email} はすでに登録済みのため、パスワードリセットメールを送信しました`
+        : `${email} に招待メールを送信しました`
+      setMessage({ type: 'success', text })
       setEmail('')
       setName('')
       setRole('member')
@@ -161,7 +164,7 @@ export default function UserManagement() {
               権限
             </label>
             <div className="flex gap-3">
-              {Object.entries(ROLE_LABELS).map(([value, { label, color, icon }]) => (
+              {Object.entries(ROLE_LABELS).map(([value, { label, icon }]) => (
                 <label
                   key={value}
                   className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 cursor-pointer transition-all text-sm font-medium

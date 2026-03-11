@@ -33,6 +33,18 @@ export async function POST(req: NextRequest) {
   })
 
   if (error) {
+    // すでに登録済みのユーザーの場合はパスワードリセットリンクを送る
+    if (error.message.includes('already been registered') || error.message.includes('already registered')) {
+      const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+        type: 'recovery',
+        email,
+        options: { redirectTo },
+      })
+      if (linkError) {
+        return NextResponse.json({ error: linkError.message }, { status: 400 })
+      }
+      return NextResponse.json({ user: linkData.user, resent: true })
+    }
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
