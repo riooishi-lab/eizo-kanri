@@ -1,7 +1,9 @@
 'use client'
 
-import { LogOut } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { LogOut, Settings } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { isAdmin } from '@/lib/admin'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 
@@ -15,12 +17,22 @@ const TABS = [
 export default function Header() {
   const router  = useRouter()
   const pathname = usePathname()
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUserEmail(user?.email ?? null)
+    })
+  }, [])
 
   async function handleSignOut() {
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')
   }
+
+  const adminUser = isAdmin(userEmail)
 
   return (
     <header className="bg-gray-900 h-14 sticky top-0 z-40 border-b border-gray-800 flex">
@@ -49,8 +61,20 @@ export default function Header() {
         })}
       </nav>
 
-      {/* 右：ログアウト */}
-      <div className="flex items-center px-5 w-52 shrink-0 justify-end">
+      {/* 右：管理者リンク＋ログアウト */}
+      <div className="flex items-center px-5 w-52 shrink-0 justify-end gap-2">
+        {adminUser && (
+          <Link
+            href="/admin/users"
+            className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors
+              ${pathname.startsWith('/admin')
+                ? 'text-white bg-gray-700'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+          >
+            <Settings className="w-4 h-4" />
+            管理
+          </Link>
+        )}
         <button
           onClick={handleSignOut}
           className="flex items-center gap-2 text-sm text-gray-400 hover:text-white
